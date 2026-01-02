@@ -1,0 +1,60 @@
+import sys
+import os
+import pandas as pd
+import warnings
+
+# Suppress minor warnings for clean output
+warnings.filterwarnings("ignore")
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+# Ensure src is in path
+sys.path.append(os.path.abspath('src'))
+from src.etl import cargar_datos, actualizar_datos
+from src.engines import LottoEngines
+
+def main():
+    print("⏳ Actualizando base de datos histórica (esto puede tardar un poco si es la primera vez)...")
+    try:
+        msg = actualizar_datos()
+        print(msg)
+    except Exception as e:
+        print(f"⚠️ Error actualizando datos: {e}")
+        # Proceed if we have at least some data
+    
+    df = cargar_datos()
+    if df.empty:
+        print("❌ Error: No se pudieron descargar datos. No hay histórico para predecir.")
+        return
+
+    print(f"✅ Datos listos. Registros: {len(df)}")
+    print(f"📅 Último sorteo registrado: {df.iloc[-1]['fecha']}")
+    
+    print("\n🧠 Generando predicciones para el Sábado...")
+    engines = LottoEngines(df)
+    
+    # Run Engines
+    print("   ... Ejecutando Ingeniero (IA)...")
+    pred_ai = engines.engine_lstm_engineer()
+    
+    print("   ... Ejecutando Estadístico...")
+    pred_stat = engines.engine_statistician()
+    
+    print("   ... Ejecutando Estratega...")
+    pred_game = engines.engine_game_theory()
+    
+    # Consensus
+    all_nums = pred_ai + pred_stat + pred_game
+    consenso = pd.Series(all_nums).value_counts().head(6).index.tolist()
+    
+    print("\n" + "="*40)
+    print("🎱 RESULTADOS DE LA PREDICCIÓN")
+    print("="*40)
+    print(f"🧠 IA (LSTM):       {pred_ai}")
+    print(f"📊 Estadístico:     {pred_stat}")
+    print(f"♟️ Estratega (EV+): {pred_game}")
+    print("-" * 40)
+    print(f"🏆 PREDICCIÓN FINAL (Consenso): {sorted(consenso)}")
+    print("="*40)
+
+if __name__ == "__main__":
+    main()

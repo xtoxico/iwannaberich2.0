@@ -1,0 +1,9 @@
+pandas
+numpy
+requests
+tensorflow
+scikit-learn
+streamlit
+plotly
+prophet
+tqdm
