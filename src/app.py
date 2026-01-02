@@ -54,7 +54,7 @@ def draw_balls(numbers, reintegro=None):
 # --- SIDEBAR ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/1067/1067357.png", width=100)
-    st.title("LottoMind v2.0")
+    st.title("I wanna Be rich v2.0")
     st.write("Sistema Avanzado de Predicción Estocástica")
     
     if st.button("🔄 Actualizar Base de Datos"):
