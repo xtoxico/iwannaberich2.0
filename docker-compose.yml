@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    image: iwannaberich:latest
+    container_name: iwannaberich
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data # Persist data locally
+    restart: unless-stopped
