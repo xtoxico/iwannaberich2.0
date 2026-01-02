@@ -32,29 +32,32 @@ def main():
     print("\n🧠 Generando predicciones para el Sábado...")
     engines = LottoEngines(df)
     
-    # Run Engines
     print("   ... Ejecutando Ingeniero (IA)...")
-    pred_ai = engines.engine_lstm_engineer()
+    pred_ai, r_ai = engines.engine_lstm_engineer()
     
     print("   ... Ejecutando Estadístico...")
-    pred_stat = engines.engine_statistician()
+    pred_stat, r_stat = engines.engine_statistician()
     
     print("   ... Ejecutando Estratega...")
-    pred_game = engines.engine_game_theory()
+    pred_game, r_game = engines.engine_game_theory()
+
+    print("\n========================================")
+    print("🎱 RESULTADOS DE LA PREDICCIÓN CON REINTEGRO")
+    print("========================================")
+    print(f"🧠 IA (LSTM):       {pred_ai} | R: {r_ai}")
+    print(f"📊 Estadístico:     {pred_stat} | R: {r_stat}")
+    print(f"♟️ Estratega (EV+): {pred_game} | R: {r_game}")
+    print("----------------------------------------")
     
-    # Consensus
     all_nums = pred_ai + pred_stat + pred_game
-    consenso = pd.Series(all_nums).value_counts().head(6).index.tolist()
+    consenso_series = pd.Series(all_nums).value_counts().head(6)
+    consenso = sorted([int(x) for x in consenso_series.index.tolist()])
     
-    print("\n" + "="*40)
-    print("🎱 RESULTADOS DE LA PREDICCIÓN")
-    print("="*40)
-    print(f"🧠 IA (LSTM):       {pred_ai}")
-    print(f"📊 Estadístico:     {pred_stat}")
-    print(f"♟️ Estratega (EV+): {pred_game}")
-    print("-" * 40)
-    print(f"🏆 PREDICCIÓN FINAL (Consenso): {sorted(consenso)}")
-    print("="*40)
+    all_rs = [int(r_ai), int(r_stat), int(r_game)]
+    consenso_r = max(set(all_rs), key=all_rs.count) # Moda
+    
+    print(f"🏆 PREDICCIÓN FINAL (Consenso): {consenso} | 🔴 Reintegro: {consenso_r}")
+    print("========================================")
 
 if __name__ == "__main__":
     main()
