@@ -29,20 +29,22 @@ def main():
     print(f"✅ Datos listos. Registros: {len(df)}")
     print(f"📅 Último sorteo registrado: {df.iloc[-1]['fecha']}")
     
-    print("\n🧠 Generando predicciones para el Sábado...")
+    print("\n🧠 Consultando predicciones para el próximo sorteo...")
     engines = LottoEngines(df)
+    target_date = engines.get_next_draw_date()
+    print(f"📅 Fecha objetivo: {target_date}")
     
-    print("   ... Ejecutando Ingeniero (IA)...")
-    pred_ai, r_ai = engines.engine_lstm_engineer()
+    print("   ... IA (LSTM)...")
+    pred_ai, r_ai = engines.get_locked_prediction('IA')
     
-    print("   ... Ejecutando Estadístico...")
-    pred_stat, r_stat = engines.engine_statistician()
+    print("   ... Estadístico...")
+    pred_stat, r_stat = engines.get_locked_prediction('Estadistico')
     
-    print("   ... Ejecutando Estratega...")
-    pred_game, r_game = engines.engine_game_theory()
+    print("   ... Estratega...")
+    pred_game, r_game = engines.get_locked_prediction('Estratega')
 
     print("\n========================================")
-    print("🎱 RESULTADOS DE LA PREDICCIÓN CON REINTEGRO")
+    print(f"🎱 RESULTADOS ({target_date})")
     print("========================================")
     print(f"🧠 IA (LSTM):       {pred_ai} | R: {r_ai}")
     print(f"📊 Estadístico:     {pred_stat} | R: {r_stat}")

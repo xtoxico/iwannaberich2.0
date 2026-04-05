@@ -14,9 +14,14 @@ def cargar_datos():
         df = pd.DataFrame(columns=['fecha', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'r', 'c'])
         df.to_csv(DATA_PATH, index=False)
     
-    df = pd.read_csv(DATA_PATH)
-    df['fecha'] = pd.to_datetime(df['fecha'])
-    return df.sort_values('fecha')
+    try:
+        df = pd.read_csv(DATA_PATH)
+        if df.empty:
+            return pd.DataFrame(columns=['fecha', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'r', 'c'])
+        df['fecha'] = pd.to_datetime(df['fecha'])
+        return df.sort_values('fecha')
+    except Exception:
+        return pd.DataFrame(columns=['fecha', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'r', 'c'])
 
 def descargar_historico_completo(progress_callback=None):
     """Descarga todo el historial desde 1985 hasta la fecha actual"""
@@ -41,17 +46,22 @@ def descargar_historico_completo(progress_callback=None):
         df.to_csv(DATA_PATH, index=False)
         return f"✅ Histórico completo descargado. {len(df)} sorteos registrados."
     else:
-        return "⚠️ No se pudieron descargar datos."
+        return "⚠️ No se pudieron descargar datos. Verifica la conexión o el bloqueo del sitio oficial."
 
 def descargar_anio(year):
-    """Descarga los sorteos de un año específico"""
+    """Descarga los sorteos de un año específico con headers robustos"""
     url = f"https://www.loteriasyapuestas.es/servicios/buscadorSorteos?game_id=LAPR&celebrados=true&fechaInicioInclusiva={year}0101&fechaFinInclusiva={year}1231"
     
-    # Headers que funcionaron en la prueba de bypass
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
-        'Referer': 'https://www.loteriasyapuestas.es/',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+        'Referer': 'https://www.loteriasyapuestas.es/es/la-primitiva',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Linux"',
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
@@ -59,23 +69,24 @@ def descargar_anio(year):
     }
     
     registros = []
-    session = requests.Session() # Usar sesion para mantener cookies/conexión
+    session = requests.Session()
     
     try:
         response = session.get(url, headers=headers, timeout=15)
         if response.status_code == 200:
-            data = response.json()
+            try:
+                data = response.json()
+            except Exception:
+                return []
+                
             if not data:
-                print(f"⚠️ Año {year}: JSON vacío o sin datos.")
+                return []
             
             for sorteo in data:
                 try:
                     fecha_sorteo = datetime.strptime(sorteo['fecha_sorteo'], "%Y-%m-%d %H:%M:%S")
                     comb = sorteo['combinacion']
                     
-                    # Debug del formato si falla
-                    # print(f"Procesando: {comb}") 
-
                     parts = comb.replace('C(', '-').replace(') R(', '-').replace(')', '').split('-')
                     if len(parts) < 8: 
                          parts = [x.strip() for x in comb.replace('-', ' ').split() if x.strip().isdigit()]
@@ -91,18 +102,15 @@ def descargar_anio(year):
                             'r': nums[7] if len(nums) > 7 else 0
                         }
                         registros.append(registro)
-                except Exception as e:
-                    # print(f"Error parseando sorteo {year}: {e}")
+                except Exception:
                     pass
-        else:
-            print(f"⚠️ Año {year}: Error HTTP {response.status_code}")
-    except Exception as e:
-        print(f"⚠️ Error descargando año {year}: {e}")
+    except Exception:
+        pass
         
     return registros
 
 def actualizar_datos():
-    """Descarga solo los sorteos nuevos desde la última fecha registrada"""
+    """Descarga solo los sorteos nuevos desde la última fecha registrada con seguridad"""
     df = cargar_datos()
     
     if not df.empty:
@@ -113,8 +121,6 @@ def actualizar_datos():
 
     year_actual = datetime.now().year
     nuevos_registros = []
-
-    print(f"🔄 Buscando actualizaciones desde {year_inicio}...")
 
     for year in range(year_inicio, year_actual + 1):
         registros_anio = descargar_anio(year)
@@ -128,4 +134,4 @@ def actualizar_datos():
         df_total.to_csv(DATA_PATH, index=False)
         return f"✅ Se han añadido {len(nuevos_registros)} nuevos sorteos."
     else:
-        return "✨ Los datos ya están actualizados."
+        return "✨ Los datos ya están actualizados o no se han encontrado nuevos sorteos."

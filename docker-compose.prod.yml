@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   iwannaberich:
-    image: iwannaberich:latest
+    image: xtoxico81/iwannaberich:latest
     container_name: iwannaberich
     restart: unless-stopped
     volumes:
@@ -13,7 +13,7 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.iwannaberich.rule=Host(`iwannaberich.antoniotirado.com`)"
       - "traefik.http.routers.iwannaberich.entrypoints=websecure"
-      - "traefik.http.routers.iwannaberich.tls.certresolver=myresolver"
+      - "traefik.http.routers.iwannaberich.tls.certresolver=letsencrypt"
       - "traefik.http.services.iwannaberich.loadbalancer.server.port=8501"
 
 networks:
