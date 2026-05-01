@@ -2,16 +2,23 @@
 import pandas as pd
 import numpy as np
 import random
+import os
+from datetime import datetime, timedelta
+
+# TensorFlow es opcional — si no está disponible los engines sin IA siguen funcionando
 try:
     import tensorflow as tf
     from tensorflow.keras.models import Sequential, load_model
     from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
-    TENSORFLOW_AVAILABLE = True
+    from tensorflow.keras.callbacks import EarlyStopping
+    TF_AVAILABLE = True
 except ImportError:
-    TENSORFLOW_AVAILABLE = False
+    TF_AVAILABLE = False
 
-import os
-from datetime import datetime, timedelta
+try:
+    from sklearn.cluster import KMeans
+except ImportError:
+    KMeans = None
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, 'models', 'lotto_lstm.keras')
@@ -19,44 +26,30 @@ PREDICTIONS_PATH = os.path.join(BASE_DIR, 'data', 'predictions.csv')
 
 class LottoEngines:
     def __init__(self, df):
-        self.df = df
+        self.df = df.reset_index(drop=True)  # Garantizar índices 0-based siempre
         self.ball_cols = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6']
 
-    def get_next_draw_date(self):
-        """Calcula la fecha del próximo sorteo de La Primitiva (Jueves o Sábado)"""
-        now = datetime.now()
-        # 0:Lunes, 1:Martes, 2:Miércoles, 3:Jueves, 4:Viernes, 5:Sábado, 6:Domingo
-        days_ahead = {
-            0: 3, # Lunes -> Jueves (+3)
-            1: 2, # Martes -> Jueves (+2)
-            2: 1, # Miércoles -> Jueves (+1)
-            3: 0 if now.hour < 21 else 2, # Jueves (Hoy si < 21:00, else Sábado +2)
-            4: 1, # Viernes -> Sábado (+1)
-            5: 0 if now.hour < 21 else 5, # Sábado (Hoy si < 21:00, else Jueves +5)
-            6: 4  # Domingo -> Jueves (+4)
-        }
-        target_days = days_ahead[now.weekday()]
-        next_date = (now + timedelta(days=target_days)).replace(hour=21, minute=0, second=0, microsecond=0)
-        return next_date.strftime('%Y-%m-%d')
-
+    # ─────────────────────────────────────────────────────────────────────────
+    # ENGINE 1: LSTM mejorado
+    # ─────────────────────────────────────────────────────────────────────────
     def engine_lstm_engineer(self, force_train=False):
-        """Enfoque Deep Learning con persistencia"""
-        if not TENSORFLOW_AVAILABLE:
+        """Deep Learning: BiLSTM profundo con lookback extendido y todos los datos."""
+        if not TF_AVAILABLE:
             # Fallback a un generador pseudo-aleatorio inteligente si no hay TF
-            # (En producción esto avisaría al usuario de la incompatibilidad)
             nums = sorted(random.sample(range(1, 50), 6))
             return nums, random.randint(0, 9)
 
-        lookback = 10
+        lookback = 30  # Aumentado de 10 → 30 sorteos de contexto
+
         data_series = []
         for _, row in self.df[self.ball_cols].iterrows():
             vector = np.zeros(49)
             for val in row.values:
-                vector[int(val)-1] = 1
+                vector[int(val) - 1] = 1
             data_series.append(vector)
-        
-        X = np.array([data_series[i:i+lookback] for i in range(len(data_series)-lookback)])
-        y = np.array(data_series[lookback:])
+
+        X = np.array([data_series[i:i + lookback] for i in range(len(data_series) - lookback)])
+        y = np.array(data_series[lookback:])  # Etiquetas desplazadas correctamente
 
         model = None
         if os.path.exists(MODEL_PATH) and not force_train:
@@ -66,97 +59,225 @@ class LottoEngines:
                 model = None
 
         if model is None:
+            # Arquitectura más profunda: 2 capas BiLSTM + Dropout + Dense intermedia
             model = Sequential([
-                Bidirectional(LSTM(64, return_sequences=False), input_shape=(lookback, 49)),
+                Bidirectional(LSTM(128, return_sequences=True), input_shape=(lookback, 49)),
+                Dropout(0.2),
+                Bidirectional(LSTM(64, return_sequences=False)),
+                Dropout(0.2),
+                Dense(128, activation='relu'),
                 Dense(49, activation='sigmoid')
             ])
             model.compile(optimizer='adam', loss='binary_crossentropy')
-            
-            train_limit = min(len(X), 500)
-            model.fit(X[-train_limit:], y[-train_limit:], epochs=15, verbose=0, batch_size=16)
+
+            # Entrenar con TODOS los datos disponibles
+            early_stop = EarlyStopping(patience=5, restore_best_weights=True, monitor='val_loss')
+            model.fit(
+                X, y,
+                epochs=50,
+                verbose=0,
+                batch_size=32,
+                validation_split=0.1,
+                callbacks=[early_stop]
+            )
+            os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
             model.save(MODEL_PATH)
-        
+
         last_seq = np.array(data_series[-lookback:]).reshape(1, lookback, 49)
         pred = model.predict(last_seq, verbose=0)[0]
         top_indices = pred.argsort()[-6:][::-1]
-        
-        reintegros_recent = self.df['r'].tail(50).value_counts().index.tolist()
-        pred_r = int(reintegros_recent[0]) if reintegros_recent else 0
-        
-        return [int(i+1) for i in sorted(top_indices)], pred_r
 
+        # Reintegro: tendencia reciente ponderada (70%) + histórico (30%)
+        r_reciente = self.df['r'].tail(20).value_counts()
+        r_historico = self.df['r'].value_counts()
+        r_score = r_reciente * 0.7 + r_historico.reindex(r_reciente.index, fill_value=0) * 0.3
+        pred_r = int(r_score.idxmax()) if not r_score.empty else 0
+
+        return [int(i + 1) for i in sorted(top_indices)], pred_r
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ENGINE 2: Estadístico (frecuencia + lag corregido)
+    # ─────────────────────────────────────────────────────────────────────────
     def engine_statistician(self):
-        """Enfoque Frecuencia + Retraso"""
-        freqs = self.df[self.ball_cols].stack().value_counts().sort_index()
+        """Frecuencia + Retraso (lag calculado con posiciones ordinales correctas)."""
+        df_reset = self.df 
+
+        freqs = df_reset[self.ball_cols].stack().value_counts().sort_index()
         freqs = freqs.reindex(range(1, 50), fill_value=0)
-        
+
+        total = len(df_reset)
         last_seen = {}
-        total = len(self.df)
         for n in range(1, 50):
-            matches = self.df[self.df[self.ball_cols].isin([n]).any(axis=1)]
-            last_seen[n] = total - matches.index[-1] if not matches.empty else total
-            
-        scores = {}
+            mask = df_reset[self.ball_cols].isin([n]).any(axis=1)
+            positions = df_reset[mask].index.tolist()
+            last_seen[n] = total - positions[-1] - 1 if positions else total
+
         max_freq = freqs.max() if freqs.max() > 0 else 1
         max_lag = max(last_seen.values()) if max(last_seen.values()) > 0 else 1
-        
+
+        scores = {}
         for n in range(1, 50):
             norm_freq = freqs[n] / max_freq
             norm_lag = last_seen[n] / max_lag
-            scores[n] = (norm_lag * 0.7) + (norm_freq * 0.3)
-            
+            scores[n] = (norm_lag * 0.6) + (norm_freq * 0.4)
+
         top_balls = sorted(sorted(scores, key=scores.get, reverse=True)[:6])
+
         r_counts = self.df['r'].value_counts()
         most_common_r = int(r_counts.idxmax()) if not r_counts.empty else 0
-        
+
         return top_balls, most_common_r
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # ENGINE 3: Teoría de Juegos (Anti-Humano)
+    # ─────────────────────────────────────────────────────────────────────────
     def engine_game_theory(self):
-        """Enfoque Anti-Humano"""
+        """Combinaciones diseñadas para ser únicas y evitar compartir el premio."""
         while True:
             nums = sorted(random.sample(range(1, 50), 6))
-            if not (120 <= sum(nums) <= 180): continue
-            consecutives = sum(1 for i in range(len(nums)-1) if nums[i+1] == nums[i]+1)
+            if not (115 <= sum(nums) <= 185): continue
+            consecutives = sum(1 for i in range(len(nums) - 1) if nums[i + 1] == nums[i] + 1)
             if consecutives > 2: continue
             low_nums = sum(1 for n in nums if n <= 31)
             if low_nums > 4: continue
-            return nums, random.randint(0, 9)
-
-    def get_locked_prediction(self, engine_name):
-        """Obtiene o genera una predicción persistente para la próxima fecha"""
-        fecha_proxima = self.get_next_draw_date()
-        
-        if os.path.exists(PREDICTIONS_PATH):
-            preds_df = pd.read_csv(PREDICTIONS_PATH)
-            existing = preds_df[(preds_df['fecha'] == fecha_proxima) & (preds_df['engine'] == engine_name)]
-            if not existing.empty:
-                row = existing.iloc[0]
-                return [int(row['n1']), int(row['n2']), int(row['n3']), int(row['n4']), int(row['n5']), int(row['n6'])], int(row['r'])
-
-        # Si no existe, generar
-        if engine_name == 'IA':
-            nums, r = self.engine_lstm_engineer()
-        elif engine_name == 'Estadistico':
-            nums, r = self.engine_statistician()
-        elif engine_name == 'Estratega':
-            nums, r = self.engine_game_theory()
-        else: # Consenso o default
-            return None, None
-
-        # Guardar
-        new_row = {
-            'fecha': fecha_proxima,
-            'engine': engine_name,
-            'n1': nums[0], 'n2': nums[1], 'n3': nums[2],
-            'n4': nums[3], 'n5': nums[4], 'n6': nums[5],
-            'r': r
-        }
-        
-        if os.path.exists(PREDICTIONS_PATH) and os.path.getsize(PREDICTIONS_PATH) > 0:
-            preds_df = pd.read_csv(PREDICTIONS_PATH)
-            preds_df = pd.concat([preds_df, pd.DataFrame([new_row])]).drop_duplicates(subset=['fecha', 'engine'])
-        else:
-            preds_df = pd.DataFrame([new_row])
+            if not any(n <= 24 for n in nums) or not any(n > 24 for n in nums): continue
             
-        preds_df.to_csv(PREDICTIONS_PATH, index=False)
-        return nums, r
+            r_val = random.randint(0, 9)
+            return nums, r_val
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ENGINE 4: Cadenas de Markov
+    # ─────────────────────────────────────────────────────────────────────────
+    def engine_markov(self):
+        """Cadenas de Markov de 1er orden: probabilidad de transición entre sorteos."""
+        transition_matrix = np.zeros((49, 49))
+        rows = self.df[self.ball_cols].values
+        for i in range(len(rows) - 1):
+            current_balls = [int(x) - 1 for x in rows[i]]
+            next_balls = [int(x) - 1 for x in rows[i + 1]]
+            for cb in current_balls:
+                for nb in next_balls:
+                    transition_matrix[cb][nb] += 1
+
+        row_sums = transition_matrix.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1
+        transition_matrix = transition_matrix / row_sums
+
+        last_balls = [int(x) - 1 for x in self.df[self.ball_cols].iloc[-1].values]
+        scores = np.zeros(49)
+        for lb in last_balls:
+            scores += transition_matrix[lb]
+        scores[last_balls] = 0
+
+        top_indices = scores.argsort()[-6:][::-1]
+        pred_r = int(self.df['r'].value_counts().idxmax()) if not self.df['r'].empty else 0
+        return [int(i + 1) for i in sorted(top_indices)], pred_r
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ENGINE 5: Análisis de Décadas
+    # ─────────────────────────────────────────────────────────────────────────
+    def engine_decades(self):
+        """Selección basada en las décadas más frías recientemente."""
+        decenas = [(1, 7), (8, 14), (15, 21), (22, 28), (29, 35), (36, 42), (43, 49)]
+        recientes = self.df[self.ball_cols].tail(100)
+        decena_scores = {}
+        for i, (lo, hi) in enumerate(decenas):
+            count = recientes.apply(lambda row: sum(1 for v in row.values if lo <= v <= hi), axis=1).sum()
+            decena_scores[i] = int(count)
+
+        sorted_decenas = sorted(decena_scores.items(), key=lambda x: x[1])
+        freqs_global = self.df[self.ball_cols].stack().value_counts()
+        result = []
+        for idx, _ in sorted_decenas:
+            lo, hi = decenas[idx]
+            candidates = list(range(lo, hi + 1))
+            best = max(candidates, key=lambda n: freqs_global.get(n, 0))
+            result.append(best)
+            if len(result) == 6: break
+        pred_r = int(self.df['r'].value_counts().idxmax()) if not self.df['r'].empty else 0
+        return sorted(result), pred_r
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ENGINE 6: Prophet
+    # ─────────────────────────────────────────────────────────────────────────
+    def engine_prophet(self, target_date=None):
+        """Predicción con Facebook Prophet."""
+        try:
+            from prophet import Prophet
+        except ImportError:
+            raise ImportError("Prophet no está instalado.")
+
+        if target_date is None:
+            from src.etl import proximo_sorteo
+            target_date = proximo_sorteo()
+
+        ball_scores = {}
+        df_sub = self.df.tail(800).copy()
+        for ball in range(1, 50):
+            ts = df_sub[['fecha']].copy().rename(columns={'fecha': 'ds'})
+            ts['y'] = df_sub[self.ball_cols].apply(lambda row: 1.0 if ball in row.values else 0.0, axis=1).values
+            ts['ds'] = pd.to_datetime(ts['ds']).dt.tz_localize(None)
+            m = Prophet(yearly_seasonality=True, weekly_seasonality=True, daily_seasonality=False, changepoint_prior_scale=0.05, seasonality_mode='additive')
+            m.fit(ts, iter=300)
+            future = pd.DataFrame({'ds': [pd.Timestamp(target_date).tz_localize(None)]})
+            forecast = m.predict(future)
+            ball_scores[ball] = float(forecast['yhat'].values[0])
+
+        top_balls = sorted(sorted(ball_scores, key=ball_scores.get, reverse=True)[:6])
+        pred_r = int(self.df['r'].value_counts().idxmax()) if not self.df['r'].empty else 0
+        return top_balls, pred_r
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ENGINE 7: Análisis de Clústeres (K-Means)
+    # ─────────────────────────────────────────────────────────────────────────
+    def engine_clusters(self):
+        """Identifica clústeres de sorteos similares."""
+        if KMeans is None: return self.engine_game_theory()
+        X = self.df[self.ball_cols].values
+        kmeans = KMeans(n_clusters=10, random_state=42, n_init=10)
+        clusters = kmeans.fit_predict(X)
+        last_cluster = clusters[-1]
+        cluster_draws = self.df[clusters == last_cluster]
+        cluster_freqs = cluster_draws[self.ball_cols].stack().value_counts()
+        last_draw = set(self.df[self.ball_cols].iloc[-1].values)
+        top_balls = []
+        for ball in cluster_freqs.index:
+            if ball not in last_draw: top_balls.append(int(ball))
+            if len(top_balls) == 6: break
+        pred_r = int(cluster_draws['r'].value_counts().idxmax()) if not cluster_draws['r'].empty else 0
+        return sorted(top_balls), pred_r
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ENGINE 8: Algoritmo Genético
+    # ─────────────────────────────────────────────────────────────────────────
+    def engine_genetic(self, generations=50, pop_size=100):
+        """Evoluciona una población de combinaciones."""
+        freqs = self.df[self.ball_cols].stack().value_counts(normalize=True).to_dict()
+        def calculate_fitness(comb):
+            f_score = sum(freqs.get(n, 0) for n in comb)
+            s = sum(comb)
+            s_penalty = 0 if 115 <= s <= 185 else -0.5
+            c = sum(1 for i in range(len(comb)-1) if comb[i+1] == comb[i]+1)
+            c_penalty = -0.2 * c
+            return f_score + s_penalty + c_penalty
+
+        population = [sorted(random.sample(range(1, 50), 6)) for _ in range(pop_size)]
+        for _ in range(generations):
+            population = sorted(population, key=calculate_fitness, reverse=True)
+            next_gen = population[:pop_size // 5]
+            while len(next_gen) < pop_size:
+                parent1, parent2 = random.sample(next_gen[:10], 2)
+                child = sorted(list(set(parent1[:3] + parent2[3:])))
+                while len(child) < 6:
+                    n = random.randint(1, 49)
+                    if n not in child: child.append(n)
+                child = sorted(child[:6])
+                if random.random() < 0.05:
+                    idx = random.randint(0, 5)
+                    new_n = random.randint(1, 49)
+                    if new_n not in child: child[idx] = new_n
+                next_gen.append(sorted(child))
+            population = next_gen
+        best_comb = population[0]
+        pred_r = int(self.df['r'].value_counts().idxmax()) if not self.df['r'].empty else 0
+        return best_comb, pred_r

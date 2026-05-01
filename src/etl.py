@@ -2,11 +2,28 @@
 import pandas as pd
 import requests
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_PATH = os.path.join(BASE_DIR, 'data', 'historico.csv')
+
+# Días de sorteo de La Primitiva: Lunes=0, Jueves=3, Sábado=5
+DIAS_SORTEO = {0, 3, 5}
+
+def proximo_sorteo():
+    """Devuelve la fecha del próximo sorteo de la Primitiva (Lunes, Jueves o Sábado)."""
+    hoy = datetime.now()
+    for i in range(7):
+        candidato = hoy + timedelta(days=i)
+        if candidato.weekday() in DIAS_SORTEO:
+            return candidato
+    return None  # No debería ocurrir nunca
+
+def nombre_dia_sorteo(fecha: datetime) -> str:
+    """Devuelve el nombre del día de sorteo en español."""
+    nombres = {0: "Lunes", 3: "Jueves", 5: "Sábado"}
+    return nombres.get(fecha.weekday(), "Desconocido")
 
 def cargar_datos():
     if not os.path.exists(DATA_PATH):
