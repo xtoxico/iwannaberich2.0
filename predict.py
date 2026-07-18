@@ -44,11 +44,12 @@ def main():
     p_dec, r_dec = engines.engine_decades()
     p_gen, r_gen = engines.engine_genetic()
     p_clust, r_clust = engines.engine_clusters()
+    p_temp, r_temp = engines.engine_temporal_patterns()
 
     print("   ... Calculando pesos adaptativos por Backtesting...")
     weights = get_engine_weights(df, n_tests=20)
     if not weights:
-        weights = {k: 1.0 for k in ['statistician', 'markov', 'decades', 'game_theory', 'genetic', 'clusters']}
+        weights = {k: 1.0 for k in ['statistician', 'markov', 'decades', 'game_theory', 'genetic', 'clusters', 'temporal_patterns']}
 
     print("\n========================================")
     print("🎱 RESULTADOS DE LOS MOTORES")
@@ -59,22 +60,30 @@ def main():
     print(f"🎯 Décadas:      {p_dec} | R: {r_dec} | w: {weights.get('decades', 0):.2f}")
     print(f"🧬 Genético:     {p_gen} | R: {r_gen} | w: {weights.get('genetic', 0):.2f}")
     print(f"🗂️  Clústeres:   {p_clust} | R: {r_clust} | w: {weights.get('clusters', 0):.2f}")
+    print(f"⏱️  Temporal:    {p_temp} | R: {r_temp} | w: {weights.get('temporal_patterns', 0):.2f}")
     print("----------------------------------------")
 
     # Acumular votos ponderados
     votes = {}
-    for ball in p_stat: votes[ball] = votes.get(ball, 0) + weights.get('statistician', 1)
-    for ball in p_markov: votes[ball] = votes.get(ball, 0) + weights.get('markov', 1)
-    for ball in p_dec: votes[ball] = votes.get(ball, 0) + weights.get('decades', 1)
-    for ball in p_game: votes[ball] = votes.get(ball, 0) + weights.get('game_theory', 1)
-    for ball in p_gen: votes[ball] = votes.get(ball, 0) + weights.get('genetic', 1)
-    for ball in p_clust: votes[ball] = votes.get(ball, 0) + weights.get('clusters', 1)
+    all_preds = [
+        (p_stat, 'statistician'), (p_markov, 'markov'), (p_dec, 'decades'),
+        (p_game, 'game_theory'), (p_gen, 'genetic'), (p_clust, 'clusters'),
+        (p_temp, 'temporal_patterns')
+    ]
+    for pred, name in all_preds:
+        w = weights.get(name, 1)
+        for ball in pred:
+            votes[ball] = votes.get(ball, 0) + w
 
     consenso_series = pd.Series(votes).sort_values(ascending=False).head(6)
     consenso = sorted([int(x) for x in consenso_series.index.tolist()])
 
-    all_rs = [r_stat, r_markov, r_dec, r_game, r_gen, r_clust]
-    consenso_r = max(set(all_rs), key=all_rs.count)
+    # Reintegro: distribución ponderada
+    import numpy as np
+    all_rs = [r_stat, r_markov, r_dec, r_game, r_gen, r_clust, r_temp]
+    r_counts = pd.Series(all_rs).value_counts()
+    r_probs = r_counts / r_counts.sum()
+    consenso_r = int(np.random.choice(r_probs.index, p=r_probs.values))
 
     print(f"🏆 PREDICCIÓN FINAL (Consenso Adaptativo): {consenso} | 🔴 Reintegro: {consenso_r}")
     print("========================================")

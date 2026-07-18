@@ -75,7 +75,7 @@ def backtest_all_engines(df: pd.DataFrame, n_tests: int = 30, skip_slow: bool = 
     Parámetros:
         df         : DataFrame histórico completo.
         n_tests    : Sorteos a usar como test por engine.
-        skip_slow  : Si True, omite engine_lstm_engineer y engine_prophet (lentos).
+        skip_slow  : Si True, omite engine_lstm_engineer (lento).
 
     Retorna:
         DataFrame con una fila por engine y columnas de rendimiento.
@@ -87,10 +87,11 @@ def backtest_all_engines(df: pd.DataFrame, n_tests: int = 30, skip_slow: bool = 
         'engine_decades',
         'engine_clusters',
         'engine_genetic',
+        'engine_temporal_patterns',
     ]
 
     if not skip_slow:
-        engines_to_test = ['engine_lstm_engineer'] + engines_to_test + ['engine_prophet']
+        engines_to_test = ['engine_lstm_engineer'] + engines_to_test
 
     results = []
     for eng in engines_to_test:

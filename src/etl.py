@@ -4,6 +4,9 @@ import requests
 import json
 from datetime import datetime, timedelta
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_PATH = os.path.join(BASE_DIR, 'data', 'historico.csv')
@@ -25,6 +28,35 @@ def nombre_dia_sorteo(fecha: datetime) -> str:
     nombres = {0: "Lunes", 3: "Jueves", 5: "Sábado"}
     return nombres.get(fecha.weekday(), "Desconocido")
 
+def validar_datos(df):
+    """Valida integridad de los datos: rango de números, reintegro, duplicados."""
+    if df.empty:
+        return df
+    
+    ball_cols = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6']
+    initial_len = len(df)
+    
+    # Validar rango de números (1-49)
+    for col in ball_cols:
+        df = df[(df[col] >= 1) & (df[col] <= 49)]
+    
+    # Validar reintegro (0-9)
+    df = df[(df['r'] >= 0) & (df['r'] <= 9)]
+    
+    # Validar complementario (0-49, 0 = no disponible)
+    if 'c' in df.columns:
+        df = df[(df['c'] >= 0) & (df['c'] <= 49)]
+    
+    # Eliminar duplicados por fecha
+    df = df.drop_duplicates(subset='fecha', keep='last')
+    
+    removed = initial_len - len(df)
+    if removed > 0:
+        logger.warning(f"Se eliminaron {removed} registros inválidos o duplicados.")
+    
+    return df
+
+
 def cargar_datos():
     if not os.path.exists(DATA_PATH):
         # Crear estructura vacía si no existe
@@ -36,8 +68,10 @@ def cargar_datos():
         if df.empty:
             return pd.DataFrame(columns=['fecha', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'r', 'c'])
         df['fecha'] = pd.to_datetime(df['fecha'])
-        return df.sort_values('fecha')
-    except Exception:
+        df = validar_datos(df)
+        return df.sort_values('fecha').reset_index(drop=True)
+    except Exception as e:
+        logger.error(f"Error cargando datos: {e}")
         return pd.DataFrame(columns=['fecha', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'r', 'c'])
 
 def descargar_historico_completo(progress_callback=None):
