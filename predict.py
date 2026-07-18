@@ -45,6 +45,7 @@ def main():
     p_gen, r_gen = engines.engine_genetic()
     p_clust, r_clust = engines.engine_clusters()
     p_temp, r_temp = engines.engine_temporal_patterns()
+    p_lstm, r_lstm = engines.engine_lstm_engineer()
 
     print("   ... Calculando pesos adaptativos por Backtesting...")
     weights = get_engine_weights(df, n_tests=20)
@@ -61,6 +62,7 @@ def main():
     print(f"🧬 Genético:     {p_gen} | R: {r_gen} | w: {weights.get('genetic', 0):.2f}")
     print(f"🗂️  Clústeres:   {p_clust} | R: {r_clust} | w: {weights.get('clusters', 0):.2f}")
     print(f"⏱️  Temporal:    {p_temp} | R: {r_temp} | w: {weights.get('temporal_patterns', 0):.2f}")
+    print(f"🧠 LSTM:         {p_lstm} | R: {r_lstm} | w: {weights.get('lstm_engineer', 1.0):.2f}")
     print("----------------------------------------")
 
     # Acumular votos ponderados
@@ -68,7 +70,7 @@ def main():
     all_preds = [
         (p_stat, 'statistician'), (p_markov, 'markov'), (p_dec, 'decades'),
         (p_game, 'game_theory'), (p_gen, 'genetic'), (p_clust, 'clusters'),
-        (p_temp, 'temporal_patterns')
+        (p_temp, 'temporal_patterns'), (p_lstm, 'lstm_engineer')
     ]
     for pred, name in all_preds:
         w = weights.get(name, 1)
@@ -80,7 +82,7 @@ def main():
 
     # Reintegro: distribución ponderada
     import numpy as np
-    all_rs = [r_stat, r_markov, r_dec, r_game, r_gen, r_clust, r_temp]
+    all_rs = [r_stat, r_markov, r_dec, r_game, r_gen, r_clust, r_temp, r_lstm]
     r_counts = pd.Series(all_rs).value_counts()
     r_probs = r_counts / r_counts.sum()
     consenso_r = int(np.random.choice(r_probs.index, p=r_probs.values))

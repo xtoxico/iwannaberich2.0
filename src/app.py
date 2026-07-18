@@ -301,7 +301,10 @@ with tab9:
             p_clust, r_clust = engines.engine_clusters()
             p_temp, r_temp = engines.engine_temporal_patterns()
             
-            engine_names = ['statistician', 'markov', 'decades', 'game_theory', 'genetic', 'clusters', 'temporal_patterns']
+            df_hash = str(len(df)) + str(df.iloc[-1]['fecha'])
+            p_lstm, r_lstm = get_cached_lstm(len(df), df_hash)
+            
+            engine_names = ['statistician', 'markov', 'decades', 'game_theory', 'genetic', 'clusters', 'temporal_patterns', 'lstm_engineer']
             weights = get_engine_weights(df, n_tests=20) if use_weights else {}
             if not weights:
                 weights = {k: 1.0 for k in engine_names}
@@ -325,6 +328,8 @@ with tab9:
             draw_balls(p_dec, r_dec)
             st.caption(f"♟️ Estratega ({weights.get('game_theory', 1):.2f})")
             draw_balls(p_game, r_game)
+            st.caption(f"🧠 LSTM ({weights.get('lstm_engineer', 1.0):.2f})")
+            draw_balls(p_lstm, r_lstm)
 
         st.divider()
 
@@ -332,7 +337,7 @@ with tab9:
         all_preds = [
             (p_stat, 'statistician'), (p_markov, 'markov'), (p_dec, 'decades'),
             (p_game, 'game_theory'), (p_gen, 'genetic'), (p_clust, 'clusters'),
-            (p_temp, 'temporal_patterns')
+            (p_temp, 'temporal_patterns'), (p_lstm, 'lstm_engineer')
         ]
 
         votes = {}
@@ -377,7 +382,7 @@ with tab9:
         agresiva = sorted(top2 + [int(x) for x in extra_4])
 
         # Reintegro: distribución ponderada de todos los reintegros generados
-        all_rs = [r_stat, r_markov, r_dec, r_game, r_gen, r_clust, r_temp]
+        all_rs = [r_stat, r_markov, r_dec, r_game, r_gen, r_clust, r_temp, r_lstm]
         r_counts = pd.Series(all_rs).value_counts()
         r_probs = r_counts / r_counts.sum()
         consenso_r = int(np.random.choice(r_probs.index, p=r_probs.values))
