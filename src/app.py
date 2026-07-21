@@ -197,7 +197,7 @@ st.divider()
 # ─────────────────────────────────────────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
     "🧠 IA (LSTM)",
     "📊 Estadístico",
     "♟️ Estratega",
@@ -208,13 +208,14 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
     "⏱️ Temporal",
     "🔮 Consenso",
     "📈 Rendimiento",
+    "🏃‍♂️ Simulación",
     "📉 Análisis"
 ])
 
 # ── TAB 1: LSTM ───────────────────────────────────────────────────────────────
 with tab1:
     st.header("Red Neuronal BiLSTM Profunda")
-    st.write("Lookback de 30 sorteos · 2 capas BiLSTM · BatchNorm · Features enriquecidas · LR Scheduling.")
+    st.write("Lookback de 60 sorteos · 2 capas BiLSTM · BatchNorm · Features enriquecidas · LR Scheduling.")
     if not TF_AVAILABLE:
         st.warning("⚠️ **TensorFlow no disponible.** Se usará un motor de contingencia aleatorio.")
     
@@ -433,8 +434,87 @@ with tab10:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-# ── TAB 11: ANÁLISIS (NUEVO) ──────────────────────────────────────────────────
+# ── TAB 11: SIMULACIÓN ────────────────────────────────────────────────────────
 with tab11:
+    st.header("🏃‍♂️ Monitor de Simulación Walk-Forward")
+    
+    res_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'simulation_results.csv'))
+    
+    st.markdown("### Control de Simulación")
+    col_ctrl1, col_ctrl2, col_ctrl3 = st.columns([2, 2, 1])
+    with col_ctrl1:
+        include_slow = st.checkbox("Incluir IA y Genético (Varias horas)", value=False, key="chk_slow_sim")
+    with col_ctrl2:
+        if st.button("▶️ Iniciar / Reanudar Simulación", type="primary", use_container_width=True):
+            import subprocess
+            cmd = [sys.executable, "scripts/simulate_history.py"]
+            if include_slow:
+                cmd.append("--include-slow")
+            # Lanzar como proceso independiente para no bloquear la web
+            subprocess.Popen(cmd, start_new_session=True)
+            st.success("🚀 Simulación iniciada en segundo plano.")
+            time.sleep(1.5)
+            st.rerun()
+    with col_ctrl3:
+        st.button("🔄 Actualizar", key="btn_refresh_sim", use_container_width=True)
+        
+    st.divider()
+        
+    if os.path.exists(res_path):
+        try:
+            res_df = pd.read_csv(res_path)
+            if not res_df.empty:
+                last_mod = os.path.getmtime(res_path)
+                is_running = (time.time() - last_mod) < 180 # 3 minutes threshold
+                
+                max_processed = res_df['draw_index'].max()
+                total_draws = len(df)
+                progress_pct = float(min(1.0, max_processed / total_draws))
+                
+                st.subheader(f"Progreso: {max_processed:,} / {total_draws:,} sorteos ({progress_pct*100:.1f}%)")
+                st.progress(progress_pct)
+                
+                if is_running:
+                    st.success("🟢 ESTADO: Activo (Procesando simulaciones en segundo plano)")
+                else:
+                    st.info("⏸️ ESTADO: Pausado o Completado")
+                
+                st.markdown("### 📋 Últimos resultados")
+                # Show latest 20 rows
+                display_df = res_df.tail(20).iloc[::-1]
+                st.dataframe(display_df, hide_index=True, use_container_width=True)
+                
+                st.markdown("---")
+                col_dl, col_best = st.columns([1, 2])
+                with col_dl:
+                    st.markdown("### 💾 Descargar Resultados")
+                    with open(res_path, "rb") as file:
+                        st.download_button(
+                            label="Descargar CSV Completo",
+                            data=file,
+                            file_name="simulation_results.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                        
+                with col_best:
+                    st.markdown("### 🏆 Mejores Resultados Históricos")
+                    max_matches = res_df['matches'].max()
+                    if pd.notna(max_matches):
+                        best_df = res_df[res_df['matches'] == max_matches].sort_values(by='draw_index', ascending=False)
+                        st.success(f"¡El mayor número de aciertos histórico es **{int(max_matches)}**!")
+                        st.dataframe(best_df, hide_index=True, use_container_width=True)
+                    else:
+                        st.info("Todavía no hay aciertos registrados.")
+            else:
+                st.warning("El archivo de resultados está vacío.")
+        except Exception as e:
+            st.error(f"Error leyendo resultados: {e}")
+    else:
+        st.info("ℹ️ No hay simulación en curso. Ejecuta el script `simulate_history.py` para empezar.")
+
+# ── TAB 12: ANÁLISIS ──────────────────────────────────────────────────────────
+with tab12:
     st.header("📉 Análisis del Histórico")
 
     # ── Frecuencia de números ──

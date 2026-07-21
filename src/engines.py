@@ -127,7 +127,7 @@ class LottoEngines:
             nums = sorted(random.sample(range(1, 50), 6))
             return nums, self._predict_reintegro('lstm_fallback')
 
-        lookback = 30
+        lookback = 60
 
         # Feature engineering enriquecido: one-hot (49) + meta-features (7) = 56 dims
         data_series = []

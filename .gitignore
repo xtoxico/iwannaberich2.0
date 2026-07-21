@@ -18,3 +18,4 @@ Thumbs.db
 # Data (Opcional: si quieres ignorar el CSV para no subirlo a GitHub)
 # data/*.csv
 # !data/.gitkeep
+scripts/deploy.py  

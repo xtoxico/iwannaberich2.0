@@ -122,9 +122,29 @@ def get_best_engine(df: pd.DataFrame, n_tests: int = 30) -> str:
 
 def get_engine_weights(df: pd.DataFrame, n_tests: int = 20) -> dict:
     """
-    Calcula pesos para cada engine basados en su precisión en backtesting.
+    Calcula pesos para cada engine basados en su precisión histórica total (walk-forward).
+    Si no hay histórico de simulación, usa un backtesting corto.
     Útil para el consenso ponderado.
     """
+    import os
+    res_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'simulation_results.csv'))
+    
+    # 1. Intentar usar todo el histórico de simulación
+    if os.path.exists(res_path):
+        try:
+            res_df = pd.read_csv(res_path)
+            if not res_df.empty:
+                # Filtrar solo los motores base (ignorar consensos pasados)
+                base_engines_df = res_df[~res_df['engine'].astype(str).str.contains('consensus', na=False)]
+                if not base_engines_df.empty:
+                    scores = base_engines_df.groupby('engine')['matches'].mean().to_dict()
+                    total = sum(scores.values()) or 1
+                    weights = {str(k).lower().replace(' ', '_'): v / total for k, v in scores.items()}
+                    return weights
+        except Exception as e:
+            print(f"⚠️ Error leyendo simulación para pesos: {e}")
+            
+    # 2. Fallback: usar backtesting a corto plazo
     summary = backtest_all_engines(df, n_tests=n_tests, skip_slow=True)
     if summary.empty:
         return {}
